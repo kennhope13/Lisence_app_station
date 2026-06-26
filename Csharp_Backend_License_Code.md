@@ -160,37 +160,48 @@ namespace StationMonitor.Services.License
 
 ## 2. Mô hình Bản Quyền & Xác Thực Fuzzy Match (LicenseParser.cs)
 
-Cập nhật `LicenseParser.cs` để hỗ trợ giải mã Hardware ID và thực hiện thuật toán **Fuzzy Matching 2-out-of-3**:
+Tạo file `LicenseParser.cs` trong dự án C# của bạn. Lớp này định nghĩa cấu trúc JSON của License, thực hiện tuần tự hóa chuẩn hóa (Canonical JSON) để tính toán chữ ký số và so khớp phần cứng **Fuzzy Match 2/3**:
 
 ```csharp
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace StationMonitor.Services.License
 {
-    public class LicenseModel
+    public class HardwareInfo
     {
-        public string Tier { get; set; } = "CML";
-        public DateTime? ExpiresAt { get; set; }
-        public int MaxConcurrentSessions { get; set; } = 1;
-        public int MaxDevices { get; set; } = 10;
-        public int MaxCameras { get; set; } = 0;
-        public int MaxPoints { get; set; } = 50;
-        public int MaxRoi { get; set; } = 50;
-        public int MaxPd { get; set; } = 50;
-        public string BoundHardwareID { get; set; } = "ANY";
-        public bool IsValid { get; set; } = false;
+        public string cpuId { get; set; }
+        public string mainboardUuid { get; set; }
+        public string osDiskSerial { get; set; }
     }
 
-    public class AddonModel
+    public class LicenseLimits
     {
-        public string Guid { get; set; }
-        public string ResourceType { get; set; } // "CAM" hoặc "SEN"
-        public int Quantity { get; set; }
-        public string BoundHardwareID { get; set; }
-        public bool IsValid { get; set; }
+        public int users { get; set; }
+        public int stations { get; set; }
+        public int cameras { get; set; }
+        public int roiPoints { get; set; }
+        public int roiRegions { get; set; }
+        public int pdRegions { get; set; }
+    }
+
+    public class LicenseJsonModel
+    {
+        public int version { get; set; }
+        public string kind { get; set; } // "base" hoặc "addon"
+        public string licenseId { get; set; }
+        public string addonId { get; set; } // Chỉ dành cho addon
+        public string baseLicenseId { get; set; } // Chỉ dành cho addon
+        public string tier { get; set; }
+        public string issuedAtUtc { get; set; }
+        public string expiresAtUtc { get; set; }
+        public HardwareInfo hardware { get; set; }
+        public LicenseLimits limits { get; set; }
+        public string signature { get; set; }
     }
 
     public static class LicenseParser
@@ -201,149 +212,100 @@ namespace StationMonitor.Services.License
             using (var hmac = new HMACSHA256(keyByte))
             {
                 var messageBytes = Encoding.UTF8.GetBytes(message);
-                var hashmessage = hmac.ComputeHash(messageBytes);
-                return BitConverter.ToString(hashmessage).Replace("-", "").ToLower();
+                var hashMessage = hmac.ComputeHash(messageBytes);
+                return BitConverter.ToString(hashMessage).Replace("-", "").ToLower();
             }
         }
 
         /// <summary>
-        /// Giải mã và xác thực chữ ký HMAC của Base License.
+        /// Tạo chuỗi JSON chuẩn hóa (Canonical JSON) với các key được sắp xếp theo thứ tự bảng chữ cái.
+        /// Sử dụng để đảm bảo tính đồng nhất của dữ liệu ký giữa Python và C#.
         /// </summary>
-        public static LicenseModel ParseKey(string key, string vendorSecret)
+        public static string GetCanonicalJson(LicenseJsonModel model)
         {
-            var model = new LicenseModel { IsValid = false };
-            if (string.IsNullOrWhiteSpace(key)) return model;
+            var dict = new SortedDictionary<string, object>();
+            dict.Add("version", model.version);
+            dict.Add("kind", model.kind);
+            dict.Add("licenseId", model.licenseId);
+            
+            if (model.kind == "addon")
+            {
+                dict.Add("addonId", model.addonId);
+                dict.Add("baseLicenseId", model.baseLicenseId);
+            }
+            
+            dict.Add("tier", model.tier);
+            dict.Add("issuedAtUtc", model.issuedAtUtc);
+            dict.Add("expiresAtUtc", model.expiresAtUtc);
+
+            var hwDict = new SortedDictionary<string, string>();
+            hwDict.Add("cpuId", model.hardware?.cpuId ?? "");
+            hwDict.Add("mainboardUuid", model.hardware?.mainboardUuid ?? "");
+            hwDict.Add("osDiskSerial", model.hardware?.osDiskSerial ?? "");
+            dict.Add("hardware", hwDict);
+
+            var limDict = new SortedDictionary<string, int>();
+            limDict.Add("users", model.limits?.users ?? 0);
+            limDict.Add("stations", model.limits?.stations ?? 0);
+            limDict.Add("cameras", model.limits?.cameras ?? 0);
+            limDict.Add("roiPoints", model.limits?.roiPoints ?? 0);
+            limDict.Add("roiRegions", model.limits?.roiRegions ?? 0);
+            limDict.Add("pdRegions", model.limits?.pdRegions ?? 0);
+            dict.Add("limits", limDict);
+
+            return JsonSerializer.Serialize(dict, new JsonSerializerOptions { WriteIndented = false });
+        }
+
+        /// <summary>
+        /// Đọc và xác thực cấu trúc JSON + chữ ký số của License.
+        /// </summary>
+        public static LicenseJsonModel ParseLicense(string jsonContent, string vendorSecret)
+        {
+            if (string.IsNullOrWhiteSpace(jsonContent)) return null;
 
             try
             {
-                var parts = key.Trim().Split('-');
-                if (parts.Length < 6) return model;
+                var model = JsonSerializer.Deserialize<LicenseJsonModel>(jsonContent);
+                if (model == null) return null;
 
-                // Xác thực chữ ký HMAC (vị trí cuối cùng)
-                string signature = parts.Last().ToLower();
-                string payload = string.Join("-", parts.Take(parts.Length - 1));
-                string computedSig = GetHmacSha256(payload, vendorSecret);
+                // 1. Xác thực chữ ký số HMAC-SHA256 trên Canonical JSON
+                string canonical = GetCanonicalJson(model);
+                string computedSig = GetHmacSha256(canonical, vendorSecret);
 
-                if (signature != computedSig)
+                if (!string.Equals(model.signature, computedSig, StringComparison.OrdinalIgnoreCase))
                 {
-                    return model; // Chữ ký HMAC sai
+                    return null; // Sai chữ ký bảo mật
                 }
 
-                // Tìm vị trí ngày hết hạn (6 chữ số)
-                int expIndex = -1;
-                for (int i = 0; i < parts.Length; i++)
+                // 2. Xác thực thời hạn sử dụng
+                if (DateTime.TryParse(model.expiresAtUtc, out DateTime expDate))
                 {
-                    if (parts[i].Length == 6 && parts[i].All(char.IsDigit))
+                    if (expDate.ToUniversalTime() < DateTime.UtcNow)
                     {
-                        expIndex = i;
-                        break;
+                        return null; // Đã hết hạn
                     }
                 }
 
-                if (expIndex == -1) return model;
-
-                model.Tier = string.Join("-", parts.Take(expIndex));
-                string expStr = parts[expIndex];
-                int yy = int.Parse(expStr.Substring(0, 2)) + 2000;
-                int mm = int.Parse(expStr.Substring(2, 2));
-                int dd = int.Parse(expStr.Substring(4, 2));
-                model.ExpiresAt = new DateTime(yy, mm, dd, 23, 59, 59, DateTimeKind.Utc);
-
-                model.MaxConcurrentSessions = int.Parse(parts[expIndex + 1]);
-
-                int nonceIndex = parts.Length - 2;
-                int remainingParams = nonceIndex - (expIndex + 2);
-
-                if (remainingParams >= 6)
+                // 3. Kiểm tra liên kết phần cứng (Fuzzy Match 2/3)
+                if (!VerifyHardwareFuzzy(model.hardware))
                 {
-                    model.MaxDevices = int.Parse(parts[expIndex + 2]);
-                    model.MaxCameras = int.Parse(parts[expIndex + 3]);
-                    model.MaxPoints = int.Parse(parts[expIndex + 4]);
-                    model.MaxRoi = int.Parse(parts[expIndex + 5]);
-                    model.MaxPd = int.Parse(parts[expIndex + 6]);
-                    model.BoundHardwareID = parts[expIndex + 7]; // HASH_CPU_MB_DISK hoặc ANY
-                }
-                else
-                {
-                    model.MaxDevices = 10;
-                    model.MaxCameras = 0;
-                    model.MaxPoints = 50;
-                    model.MaxRoi = 50;
-                    model.MaxPd = 50;
+                    return null; // Phần cứng không khớp
                 }
 
-                // Kiểm tra Hardware ID (Fuzzy Match 2/3)
-                if (model.BoundHardwareID != "ANY" && !VerifyHardwareFuzzy(model.BoundHardwareID))
-                {
-                    return model; // Hardware không trùng khớp
-                }
-
-                model.IsValid = true;
+                return model;
             }
             catch
             {
-                model.IsValid = false;
+                return null;
             }
-
-            return model;
-        }
-
-        /// <summary>
-        /// Giải mã và xác thực gói nâng cấp Add-on.
-        /// Định dạng: ADDON-[GUID]-[UpgradeType]-[Quantity]-[BoundHWID]-[Nonce]-[HMAC]
-        /// </summary>
-        public static AddonModel ParseAddonKey(string key, string vendorSecret)
-        {
-            var model = new AddonModel { IsValid = false };
-            if (string.IsNullOrWhiteSpace(key)) return model;
-
-            try
-            {
-                var parts = key.Trim().Split('-');
-                if (parts.Length < 7 || parts[0] != "ADDON") return model;
-
-                // Kiểm tra chữ ký HMAC
-                string signature = parts.Last().ToLower();
-                string payload = string.Join("-", parts.Take(parts.Length - 1));
-                string computedSig = GetHmacSha256(payload, vendorSecret);
-
-                if (signature != computedSig) return model;
-
-                model.Guid = parts[1];
-                model.ResourceType = parts[2]; // CAM hoặc SEN
-                model.Quantity = int.Parse(parts[3]);
-                model.BoundHardwareID = parts[4];
-                
-                // Xác thực Hardware Lock
-                if (model.BoundHardwareID != "ANY" && !VerifyHardwareFuzzy(model.BoundHardwareID))
-                {
-                    return model;
-                }
-
-                model.IsValid = true;
-            }
-            catch
-            {
-                model.IsValid = false;
-            }
-
-            return model;
         }
 
         /// <summary>
         /// Thuật toán Fuzzy Matching (Khớp 2 trên 3 tiêu chí phần cứng)
-        /// Tránh trường hợp đổi phần cứng nhỏ (ví dụ đổi ổ đĩa phụ, cắm thêm USB) làm rớt License.
         /// </summary>
-        public static bool VerifyHardwareFuzzy(string licenseHwId)
+        public static bool VerifyHardwareFuzzy(HardwareInfo licenseHw)
         {
-            if (licenseHwId == "ANY") return true;
-
-            var licensedParts = licenseHwId.Split('_');
-            if (licensedParts.Length != 3) return false;
-
-            string licCpu = licensedParts[0];
-            string licMb = licensedParts[1];
-            string licDisk = licensedParts[2];
+            if (licenseHw == null) return false;
 
             // Lấy vân tay của máy hiện tại
             string currentCpu = HardwareFingerprint.GetSha256Hash(HardwareFingerprint.GetCpuID());
@@ -351,11 +313,10 @@ namespace StationMonitor.Services.License
             string currentDisk = HardwareFingerprint.GetSha256Hash(HardwareFingerprint.GetOSDiskSerial());
 
             int matchCount = 0;
-            if (licCpu.Equals(currentCpu, StringComparison.OrdinalIgnoreCase)) matchCount++;
-            if (licMb.Equals(currentMb, StringComparison.OrdinalIgnoreCase)) matchCount++;
-            if (licDisk.Equals(currentDisk, StringComparison.OrdinalIgnoreCase)) matchCount++;
+            if (string.Equals(licenseHw.cpuId, currentCpu, StringComparison.OrdinalIgnoreCase)) matchCount++;
+            if (string.Equals(licenseHw.mainboardUuid, currentMb, StringComparison.OrdinalIgnoreCase)) matchCount++;
+            if (string.Equals(licenseHw.osDiskSerial, currentDisk, StringComparison.OrdinalIgnoreCase)) matchCount++;
 
-            // Chỉ cần trùng khớp tối thiểu 2 trong số 3 tiêu chí phần cứng
             return matchCount >= 2;
         }
     }
@@ -366,7 +327,7 @@ namespace StationMonitor.Services.License
 
 ## 3. Quản Lý File & Cộng Dồn Tài Nguyên (LicenseManager.cs)
 
-Lớp này quét thư mục chứa License, lấy File bản quyền chính (`base.lic`) và toàn bộ file Add-on (`addon_*.lic`), sau đó thực hiện kiểm tra chữ ký, lọc trùng lặp GUID để tính toán tài nguyên thực tế được cấp phép:
+Tạo file `LicenseManager.cs`. Lớp này quét thư mục bản quyền, kiểm tra file gốc `base.lic` và tổng hợp tất cả các gói nâng cấp add-on hợp lệ để cung cấp thông số tài nguyên thực tế cho phần mềm:
 
 ```csharp
 using System;
@@ -381,10 +342,14 @@ namespace StationMonitor.Services.License
         private readonly string _licenseDirectory;
         private readonly string _vendorSecret;
 
-        // Kết quả tài nguyên tổng hợp sau khi cộng dồn
-        public int AllowedDevices { get; private set; } = 10; // Mặc định gói CML
+        // Các giới hạn tài nguyên tổng hợp sau khi cộng dồn
+        public int AllowedUsers { get; private set; } = 1;
+        public int AllowedStations { get; private set; } = 10;
         public int AllowedCameras { get; private set; } = 0;
-        public int AllowedSensors { get; private set; } = 50;
+        public int AllowedRoiPoints { get; private set; } = 50;
+        public int AllowedRoiRegions { get; private set; } = 50;
+        public int AllowedPdRegions { get; private set; } = 50;
+
         public bool IsSystemLicensed { get; private set; } = false;
         public string LicenseTier { get; private set; } = "CML-DEMO";
         public DateTime? ExpirationDate { get; private set; }
@@ -397,97 +362,88 @@ namespace StationMonitor.Services.License
         }
 
         /// <summary>
-        /// Đọc toàn bộ thư mục và tính toán tổng số lượng tài nguyên cộng dồn hợp lệ.
+        /// Quét thư mục và tính toán tổng số lượng tài nguyên cộng dồn.
         /// </summary>
         public void ReloadLicenses()
         {
-            // Reset tài nguyên mặc định
-            AllowedDevices = 10;
+            // Reset về mặc định dùng thử
+            AllowedUsers = 1;
+            AllowedStations = 10;
             AllowedCameras = 0;
-            AllowedSensors = 50;
+            AllowedRoiPoints = 50;
+            AllowedRoiRegions = 50;
+            AllowedPdRegions = 50;
             IsSystemLicensed = false;
             LicenseTier = "CML-DEMO";
             ExpirationDate = null;
 
-            if (!Directory.Exists(_licenseDirectory))
-            {
-                return;
-            }
+            if (!Directory.Exists(_licenseDirectory)) return;
 
-            // 1. Quét tìm Base License
+            // 1. Quét Base License
             string baseLicensePath = Path.Combine(_licenseDirectory, "base.lic");
-            if (!File.Exists(baseLicensePath))
+            if (!File.Exists(baseLicensePath)) return;
+
+            string baseJson = File.ReadAllText(baseLicensePath).Trim();
+            var baseLicense = LicenseParser.ParseLicense(baseJson, _vendorSecret);
+
+            if (baseLicense == null || baseLicense.kind != "base")
             {
-                // Nếu không có file base.lic cụ thể, lấy file .lic có độ dài chuỗi dài nhất
-                var licFiles = Directory.GetFiles(_licenseDirectory, "*.lic");
-                baseLicensePath = licFiles.FirstOrDefault(f => !Path.GetFileName(f).StartsWith("addon_"));
+                return; // Base License không hợp lệ
             }
 
-            if (baseLicensePath == null || !File.Exists(baseLicensePath))
-            {
-                return; // Không có Base License thì không thể cộng dồn Add-on
-            }
-
-            string baseKey = File.ReadAllText(baseLicensePath).Trim();
-            var baseLicense = LicenseParser.ParseKey(baseKey, _vendorSecret);
-
-            if (!baseLicense.IsValid)
-            {
-                return; // Base License không hợp lệ hoặc sai chữ ký
-            }
-
-            if (baseLicense.ExpiresAt.HasValue && baseLicense.ExpiresAt < DateTime.UtcNow)
-            {
-                return; // Base License đã hết hạn
-            }
-
-            // Gán tài nguyên gốc từ Base License
+            // Gán tài nguyên nền
             IsSystemLicensed = true;
-            LicenseTier = baseLicense.Tier;
-            ExpirationDate = baseLicense.ExpiresAt;
-            AllowedDevices = baseLicense.MaxDevices;
-            AllowedCameras = baseLicense.MaxCameras;
-            AllowedSensors = baseLicense.MaxPoints;
+            LicenseTier = baseLicense.tier;
+            if (DateTime.TryParse(baseLicense.expiresAtUtc, out DateTime expDate))
+            {
+                ExpirationDate = expDate;
+            }
 
-            // 2. Quét và cộng dồn các gói Add-on
+            AllowedUsers = baseLicense.limits.users;
+            AllowedStations = baseLicense.limits.stations;
+            AllowedCameras = baseLicense.limits.cameras;
+            AllowedRoiPoints = baseLicense.limits.roiPoints;
+            AllowedRoiRegions = baseLicense.limits.roiRegions;
+            AllowedPdRegions = baseLicense.limits.pdRegions;
+
+            // 2. Quét và cộng dồn các gói nâng cấp Add-on
             var addonFiles = Directory.GetFiles(_licenseDirectory, "addon_*.lic");
-            var loadedAddonGuids = new HashSet<string>(); // Chống chép đè/sao chép nhiều file giống nhau
+            var loadedAddonIds = new HashSet<string>();
 
             foreach (var file in addonFiles)
             {
                 try
                 {
-                    string addonKey = File.ReadAllText(file).Trim();
-                    var addon = LicenseParser.ParseAddonKey(addonKey, _vendorSecret);
+                    string addonJson = File.ReadAllText(file).Trim();
+                    var addon = LicenseParser.ParseLicense(addonJson, _vendorSecret);
 
-                    if (addon.IsValid)
+                    if (addon != null && addon.kind == "addon" && addon.baseLicenseId == baseLicense.licenseId)
                     {
-                        // Kiểm tra xem GUID của add-on đã được đọc chưa để tránh lặp lại (copy cheat)
-                        if (!loadedAddonGuids.Contains(addon.Guid))
+                        // Chống lặp file (cheat bản quyền bằng cách copy nhân bản file .lic)
+                        if (!loadedAddonIds.Contains(addon.addonId))
                         {
-                            loadedAddonGuids.Add(addon.Guid);
+                            loadedAddonIds.Add(addon.addonId);
 
                             // Cộng dồn tài nguyên
-                            if (addon.ResourceType == "CAM")
-                            {
-                                AllowedCameras += addon.Quantity;
-                            }
-                            else if (addon.ResourceType == "SEN")
-                            {
-                                AllowedSensors += addon.Quantity;
-                            }
+                            AllowedUsers += addon.limits.users;
+                            AllowedStations += addon.limits.stations;
+                            AllowedCameras += addon.limits.cameras;
+                            AllowedRoiPoints += addon.limits.roiPoints;
+                            AllowedRoiRegions += addon.limits.roiRegions;
+                            AllowedPdRegions += addon.limits.pdRegions;
                         }
                     }
                 }
                 catch
                 {
-                    // Bỏ qua file addon bị hỏng
+                    // Bỏ qua nếu file add-on bị lỗi cấu trúc
                 }
             }
         }
     }
 }
 ```
+
 
 ---
 

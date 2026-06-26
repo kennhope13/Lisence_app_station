@@ -1,1 +1,24 @@
-ADDON-ADD8A9F-CAM-5-E6D14B20_178C9E23_4FA0102B-A1B2-7327b1e67ddbefb54885bdeb4b2f906b3968862b1b27a94c6e6495e809a4d355
+{
+  "version": 1,
+  "kind": "addon",
+  "licenseId": "8fa8d39e-2144-4866-9e6b-0b29a28ebdf2",
+  "addonId": "2fa4e891-b3b4-4b55-bc55-c53d4ffdb382",
+  "baseLicenseId": "8fa8d39e-2144-4866-9e6b-0b29a28ebdf2",
+  "tier": "ADDON-CAM",
+  "issuedAtUtc": "2026-06-26T08:15:00Z",
+  "expiresAtUtc": "2029-12-31T23:59:59Z",
+  "hardware": {
+    "cpuId": "E6D14B20",
+    "mainboardUuid": "178C9E23",
+    "osDiskSerial": "4FA0102B"
+  },
+  "limits": {
+    "users": 0,
+    "stations": 0,
+    "cameras": 5,
+    "roiPoints": 0,
+    "roiRegions": 0,
+    "pdRegions": 0
+  },
+  "signature": "c2a81ea8b62eab7a2ed9c4930061083ddc93b7c45fea6b998435e5eed20d287f"
+}

@@ -194,7 +194,12 @@ class LiveDatabase:
             return False
         try:
             cursor = conn.cursor()
-            new_id = str(uuid.uuid4()).upper()
+            try:
+                lic_data = json.loads(key_str)
+                new_id = lic_data.get("licenseId", str(uuid.uuid4())).upper()
+            except Exception:
+                new_id = str(uuid.uuid4()).upper()
+                
             created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             expires_at_val = None
@@ -481,6 +486,78 @@ def _generate_key(secret, payload):
     h = hmac.new(secret.encode("utf-8"), data, hashlib.sha256)
     hmac8 = h.digest().hex().upper()[:8]
     return f"{payload}-{nonce}-{hmac8}"
+
+def _generate_json_license(secret, kind, license_id, tier, exp_date_raw, max_users, max_stations, max_cameras, max_roi_points, max_roi_regions, max_pd_regions, hwid_raw, addon_id=None, base_license_id=None, expires_at_utc=None):
+    if not expires_at_utc:
+        if exp_date_raw == "991231":
+            expires_at_utc = "2099-12-31T23:59:59Z"
+        else:
+            try:
+                yy = int(exp_date_raw[:2]) + 2000
+                mm = int(exp_date_raw[2:4])
+                dd = int(exp_date_raw[4:])
+                expires_at_utc = f"{yy:04d}-{mm:02d}-{dd:02d}T23:59:59Z"
+            except:
+                expires_at_utc = "2099-12-31T23:59:59Z"
+
+    cpu_id = "ANY"
+    mb_id = "ANY"
+    disk_id = "ANY"
+
+    if hwid_raw and hwid_raw != "ANY":
+        try:
+            req_data = json.loads(hwid_raw)
+            if "FINGERPRINT" in req_data:
+                fingerprint = req_data["FINGERPRINT"]
+                cpu_id = fingerprint.get("CPUID", "ANY")
+                mb_id = fingerprint.get("MAINBOARDUUID", "ANY")
+                disk_id = fingerprint.get("OSDISKSERIAL", "ANY")
+                
+                def get_sha256_hash(val):
+                    if not val or val == "ANY": return "ANY"
+                    return hashlib.sha256(val.upper().strip().encode('utf-8')).hexdigest()[:8].upper()
+                cpu_id = get_sha256_hash(cpu_id)
+                mb_id = get_sha256_hash(mb_id)
+                disk_id = get_sha256_hash(disk_id)
+        except Exception:
+            parts = hwid_raw.split("_")
+            if len(parts) == 3:
+                cpu_id, mb_id, disk_id = parts
+            else:
+                cpu_id = hwid_raw
+
+    lic_dict = {
+        "version": 1,
+        "kind": kind,
+        "licenseId": license_id,
+        "tier": tier,
+        "issuedAtUtc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "expiresAtUtc": expires_at_utc,
+        "hardware": {
+            "cpuId": cpu_id,
+            "mainboardUuid": mb_id,
+            "osDiskSerial": disk_id
+        },
+        "limits": {
+            "users": int(max_users),
+            "stations": int(max_stations),
+            "cameras": int(max_cameras),
+            "roiPoints": int(max_roi_points),
+            "roiRegions": int(max_roi_regions),
+            "pdRegions": int(max_pd_regions)
+        }
+    }
+
+    if kind == "addon":
+        lic_dict["addonId"] = addon_id
+        lic_dict["baseLicenseId"] = base_license_id
+
+    # Canonical serialization
+    canonical = json.dumps(lic_dict, sort_keys=True, separators=(',', ':'))
+    sig = hmac.new(secret.encode('utf-8'), canonical.encode('utf-8'), hashlib.sha256).hexdigest()
+    lic_dict["signature"] = sig
+    return json.dumps(lic_dict, indent=2, ensure_ascii=False)
+
 
 def calculate_mock_revenue(tier):
     parts = tier.split("-")
@@ -1093,9 +1170,22 @@ def main():
             calc_pts = 500 if sdl_checked else 50
 
             if submitted:
-                hwid_clean = hwid.strip().upper().replace(" ", "") if hwid.strip() else "ANY"
-                payload = f"{tier}-{exp}-{int(max_users)}-{calc_dev}-{calc_cam}-{calc_pts}-50-50-{hwid_clean}"
-                new_key = _generate_key(secret, payload)
+                license_id = str(uuid.uuid4()).upper()
+                new_key = _generate_json_license(
+                    secret=secret,
+                    kind="base",
+                    license_id=license_id,
+                    tier=tier,
+                    exp_date_raw=exp,
+                    max_users=max_users,
+                    max_stations=calc_dev,
+                    max_cameras=calc_cam,
+                    max_roi_points=calc_pts,
+                    max_roi_regions=50,
+                    max_pd_regions=50,
+                    hwid_raw=hwid
+                )
+
 
                 
                 db_success = True
@@ -1492,23 +1582,53 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
             
             if submitted_addon and base_selected:
+                base_license_id = "ANY"
                 hw_id = "ANY"
-                parts = base_selected["key"].split("-")
-                exp_index = -1
-                for idx, part in enumerate(parts):
-                    if len(part) == 6 and part.isdigit():
-                        exp_index = idx
-                        break
-                if exp_index != -1:
-                    nonce_index = len(parts) - 2
-                    remaining_params = nonce_index - (exp_index + 2)
-                    if remaining_params >= 6:
-                        hw_id = parts[exp_index + 7]
+                base_expires_at_utc = "2099-12-31T23:59:59Z"
+                try:
+                    base_json = json.loads(base_selected["key"])
+                    base_license_id = base_json.get("licenseId", "ANY")
+                    hw_info = base_json.get("hardware", {})
+                    hw_id = f"{hw_info.get('cpuId','ANY')}_{hw_info.get('mainboardUuid','ANY')}_{hw_info.get('osDiskSerial','ANY')}"
+                    base_expires_at_utc = base_json.get("expiresAtUtc", "2099-12-31T23:59:59Z")
+                except Exception:
+                    parts = base_selected["key"].split("-")
+                    exp_index = -1
+                    for idx, part in enumerate(parts):
+                        if len(part) == 6 and part.isdigit():
+                            exp_index = idx
+                            break
+                    if exp_index != -1:
+                        nonce_index = len(parts) - 2
+                        remaining_params = nonce_index - (exp_index + 2)
+                        if remaining_params >= 6:
+                            hw_id = parts[exp_index + 7]
                 
-                addon_guid = secrets.token_hex(4).upper()
+                addon_guid = str(uuid.uuid4()).upper()
                 type_code = "CAM" if "Camera" in res_type else "SEN"
-                payload = f"ADDON-{addon_guid}-{type_code}-{int(qty)}-{hw_id}"
-                addon_key = _generate_key(secret, payload)
+                
+                users = 0
+                stations = 0
+                cameras = int(qty) if type_code == "CAM" else 0
+                roi_points = int(qty) if type_code == "SEN" else 0
+                
+                addon_key = _generate_json_license(
+                    secret=secret,
+                    kind="addon",
+                    license_id=base_license_id,
+                    addon_id=addon_guid,
+                    base_license_id=base_license_id,
+                    tier=f"ADDON-{type_code}",
+                    exp_date_raw="991231",
+                    max_users=users,
+                    max_stations=stations,
+                    max_cameras=cameras,
+                    max_roi_points=roi_points,
+                    max_roi_regions=0,
+                    max_pd_regions=0,
+                    hwid_raw=hw_id,
+                    expires_at_utc=base_expires_at_utc
+                )
                 
                 db_success = True
                 if use_live:
