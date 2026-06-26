@@ -1,0 +1,44 @@
+[
+    {
+        "key": "SOLO-270623-1-11-10-10-10-10-5E1B-F08294C7",
+        "tier": "SOLO",
+        "expire_date": "270623",
+        "created_at": "2026-06-23 13:43:36"
+    },
+    {
+        "key": "CML-SDL500-CAM8-SEL1-270623-4-11-8-500-50-50-DF16-67800FB4",
+        "tier": "CML-SDL500-CAM8-SEL1",
+        "expire_date": "270623",
+        "created_at": "2026-06-23 21:07:02"
+    },
+    {
+        "key": "CML-CAM8-SEL1-280622-1-11-8-50-50-50-ECDD-08718BB7",
+        "tier": "CML-CAM8-SEL1",
+        "expire_date": "280622",
+        "created_at": "2026-06-23 21:27:51"
+    },
+    {
+        "key": "CML-CAM15-SEL15-270624-1-25-15-50-50-50-1473-D716D58E",
+        "tier": "CML-CAM15-SEL15",
+        "expire_date": "270624",
+        "created_at": "2026-06-24 10:29:12"
+    },
+    {
+        "key": "CML-CAM10-270624-1-10-10-50-50-50-58DC-796B34CE",
+        "tier": "CML-CAM10",
+        "expire_date": "270624",
+        "created_at": "2026-06-24 13:18:16"
+    },
+    {
+        "key": "CML-CAM9-270624-1-10-9-50-50-50-26A8-3570B8D6",
+        "tier": "CML-CAM9",
+        "expire_date": "270624",
+        "created_at": "2026-06-24 13:20:25"
+    },
+    {
+        "key": "CML-SDL500-CAM15-SEL15-280623-1-25-15-500-50-50-CCB5-93FF7B3A",
+        "tier": "CML-SDL500-CAM15-SEL15",
+        "expire_date": "280623",
+        "created_at": "2026-06-24 14:19:49"
+    }
+]

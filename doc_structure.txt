@@ -1,0 +1,20 @@
+=== paragraphs ===
+[Normal] TÀI LIỆU PHÂN TÍCH: CÁC GIẢI PHÁP QUẢN LÝ BẢN QUYỀN OFFLINE CHO TRẠM CÔ LẬP
+[Normal] Tích hợp hệ thống giám sát StationMonitor
+[Normal] 1. GIẢI PHÁP 1: XÁC THỰC CHUỖI MÃ HÓA OFFLINE (CRYPTOGRAPHIC KEY)
+[Normal] 2. GIẢI PHÁP 2: CÀI ĐẶT DASHBOARD QUẢN TRỊ NỘI BỘ (LOCAL ADMIN DASHBOARD)
+[Normal] 3. GIẢI PHÁP 3: FILE GIA HẠN ĐỊNH KỲ (CHALLENGE - RESPONSE FILE)
+[Normal] BẢNG SO SÁNH TỔNG HỢP CÁC GIẢI PHÁP
+[Normal] 4. BIỂU ĐỒ USE CASE HỆ THỐNG QUẢN LÝ BẢN QUYỀN TRUNG TÂM
+[Normal] 5. PHƯƠNG THỨC XÁC THỰC MÃ QR TRÊN ĐIỆN THOẠI (CHI TIẾT OPTION 1)
+[Normal] Tài liệu được lập bởi Antigravity AI - Ngày 25/06/2026.
+
+=== tables ===
+
+Table 0:
+Tiêu chí | GP 1: Chuỗi Key | GP 2: Dashboard nội bộ | GP 3: Xuất nhập File
+Độ phức tạp tích hợp | Thấp | Trung bình | Cao
+Trải nghiệm khách hàng | Rất tốt (Nhập 1 lần) | Tốt | Phức tạp (Xuất/Nhập file)
+Khả năng chống sao chép | Trung bình (Không khóa HW) | Thấp | Rất cao (Khóa theo HW ID)
+Quản lý thu phí định kỳ | Dựa theo ngày hết hạn | Khách hàng tự quản trị | Bắt buộc liên hệ đổi file
+Sự cố treo phiên | Khởi động lại Service | IT tự nhấn nút Revoke | IT tự quản trị

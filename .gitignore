@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.stfolder/
+.stversions/
+extracted_dlls/
+search_js_output.txt
+resolved_createlicense_il.txt
+resolved_movenext_il.txt
+db_output.json
+*.db
+*.log
