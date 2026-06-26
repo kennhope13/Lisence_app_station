@@ -554,7 +554,7 @@ def _generate_json_license(secret, kind, license_id, tier, exp_date_raw, max_use
 
     # Canonical serialization
     canonical = json.dumps(lic_dict, sort_keys=True, separators=(',', ':'))
-    sig = hmac.new(secret.encode('utf-8'), canonical.encode('utf-8'), hashlib.sha256).hexdigest()
+    sig = hmac.new(secret.encode('utf-8'), canonical.encode('utf-8'), hashlib.sha256).hexdigest()[:8]
     lic_dict["signature"] = sig
     return json.dumps(lic_dict, indent=2, ensure_ascii=False)
 

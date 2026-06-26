@@ -12,7 +12,7 @@ def generate_signed_license(lic_data, secret):
     canonical_json = json.dumps(data_to_sign, sort_keys=True, separators=(',', ':'))
     
     # 3. Compute HMAC-SHA256 signature
-    signature = hmac.new(secret.encode('utf-8'), canonical_json.encode('utf-8'), hashlib.sha256).hexdigest()
+    signature = hmac.new(secret.encode('utf-8'), canonical_json.encode('utf-8'), hashlib.sha256).hexdigest()[:8]
     
     # 4. Inject signature back into the license dictionary
     lic_data["signature"] = signature

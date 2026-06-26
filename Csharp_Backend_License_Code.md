@@ -268,9 +268,10 @@ namespace StationMonitor.Services.License
                 var model = JsonSerializer.Deserialize<LicenseJsonModel>(jsonContent);
                 if (model == null) return null;
 
-                // 1. Xác thực chữ ký số HMAC-SHA256 trên Canonical JSON
+                // 1. Xác thực chữ ký số HMAC-SHA256 trên Canonical JSON (chỉ lấy 8 ký tự hex đầu)
                 string canonical = GetCanonicalJson(model);
-                string computedSig = GetHmacSha256(canonical, vendorSecret);
+                string fullSig = GetHmacSha256(canonical, vendorSecret);
+                string computedSig = fullSig.Substring(0, 8);
 
                 if (!string.Equals(model.signature, computedSig, StringComparison.OrdinalIgnoreCase))
                 {
