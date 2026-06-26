@@ -503,10 +503,17 @@ def _generate_json_license(secret, kind, license_id, tier, exp_date_raw, max_use
     cpu_id = "ANY"
     mb_id = "ANY"
     disk_id = "ANY"
+    fingerprint_hash = ""
 
     if hwid_raw and hwid_raw != "ANY":
         try:
-            req_data = json.loads(hwid_raw)
+            # Handle embedded JSON if the raw request string contains brackets
+            json_str = hwid_raw
+            if "{" in hwid_raw and "}" in hwid_raw:
+                json_str = hwid_raw[hwid_raw.find("{"):hwid_raw.rfind("}")+1]
+            req_data = json.loads(json_str)
+            if "FINGERPRINTHASH" in req_data:
+                fingerprint_hash = req_data["FINGERPRINTHASH"].upper().strip()
             if "FINGERPRINT" in req_data:
                 fingerprint = req_data["FINGERPRINT"]
                 cpu_id = fingerprint.get("CPUID", "ANY")
@@ -526,12 +533,19 @@ def _generate_json_license(secret, kind, license_id, tier, exp_date_raw, max_use
             else:
                 cpu_id = hwid_raw
 
+    # Ensure fingerprint_hash is calculated if not already extracted
+    if not fingerprint_hash:
+        raw_hw_str = f"{cpu_id}|{mb_id}|{disk_id}".upper().strip()
+        fingerprint_hash = hashlib.sha256(raw_hw_str.encode('utf-8')).hexdigest().upper()
+
+    issued_at_utc = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
     lic_dict = {
         "version": 1,
         "kind": kind,
         "licenseId": license_id,
         "tier": tier,
-        "issuedAtUtc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "issuedAtUtc": issued_at_utc,
         "expiresAtUtc": expires_at_utc,
         "hardware": {
             "cpuId": cpu_id,
@@ -552,8 +566,19 @@ def _generate_json_license(secret, kind, license_id, tier, exp_date_raw, max_use
         lic_dict["addonId"] = addon_id
         lic_dict["baseLicenseId"] = base_license_id
 
-    # Canonical serialization
-    canonical = json.dumps(lic_dict, sort_keys=True, separators=(',', ':'))
+    # Canonical string according to format:
+    # KIND|licenseId|addonId|baseLicenseId|tier|issuedAtUtc|expiresAtUtc|fingerprintHash|limits
+    kind_str = kind.upper()
+    lic_id_str = license_id.upper() if license_id else ""
+    addon_id_str = addon_id.upper() if addon_id else ""
+    base_lic_id_str = base_license_id.upper() if base_license_id else ""
+    tier_str = tier.upper()
+    
+    # limits: users,stations,cameras,roi_points,roi_regions,pd_regions
+    limits_str = f"{int(max_users)},{int(max_stations)},{int(max_cameras)},{int(max_roi_points)},{int(max_roi_regions)},{int(max_pd_regions)}"
+    
+    canonical = f"{kind_str}|{lic_id_str}|{addon_id_str}|{base_lic_id_str}|{tier_str}|{issued_at_utc}|{expires_at_utc}|{fingerprint_hash}|{limits_str}"
+    
     sig = hmac.new(secret.encode('utf-8'), canonical.encode('utf-8'), hashlib.sha256).hexdigest()[:8]
     lic_dict["signature"] = sig
     return json.dumps(lic_dict, indent=2, ensure_ascii=False)

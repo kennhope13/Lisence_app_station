@@ -3,18 +3,32 @@ import hashlib
 import json
 
 def generate_signed_license(lic_data, secret):
-    # 1. Create a copy of the dictionary without the signature field
-    data_to_sign = lic_data.copy()
-    if "signature" in data_to_sign:
-        del data_to_sign["signature"]
-        
-    # 2. Serialize to canonical JSON (minified, sorted keys)
-    canonical_json = json.dumps(data_to_sign, sort_keys=True, separators=(',', ':'))
+    # 1. Extract values
+    kind = lic_data.get("kind", "").upper()
+    lic_id = lic_data.get("licenseId", "").upper()
+    addon_id = lic_data.get("addonId", "").upper()
+    base_lic_id = lic_data.get("baseLicenseId", "").upper()
+    tier = lic_data.get("tier", "").upper()
+    issued_at = lic_data.get("issuedAtUtc", "")
+    expires_at = lic_data.get("expiresAtUtc", "")
     
-    # 3. Compute HMAC-SHA256 signature
-    signature = hmac.new(secret.encode('utf-8'), canonical_json.encode('utf-8'), hashlib.sha256).hexdigest()[:8]
+    # 2. Compute fingerprintHash
+    hw = lic_data.get("hardware", {})
+    cpu_id = hw.get("cpuId", "ANY")
+    mb_id = hw.get("mainboardUuid", "ANY")
+    disk_id = hw.get("osDiskSerial", "ANY")
+    raw_hw_str = f"{cpu_id}|{mb_id}|{disk_id}".upper().strip()
+    fingerprint_hash = hashlib.sha256(raw_hw_str.encode('utf-8')).hexdigest().upper()
     
-    # 4. Inject signature back into the license dictionary
+    # 3. Compute limits string: users,stations,cameras,roi_points,roi_regions,pd_regions
+    limits = lic_data.get("limits", {})
+    limits_str = f"{limits.get('users',0)},{limits.get('stations',0)},{limits.get('cameras',0)},{limits.get('roiPoints',0)},{limits.get('roiRegions',0)},{limits.get('pdRegions',0)}"
+    
+    # 4. Canonical string
+    canonical = f"{kind}|{lic_id}|{addon_id}|{base_lic_id}|{tier}|{issued_at}|{expires_at}|{fingerprint_hash}|{limits_str}"
+    
+    # 5. Signature
+    signature = hmac.new(secret.encode('utf-8'), canonical.encode('utf-8'), hashlib.sha256).hexdigest()[:8]
     lic_data["signature"] = signature
     return lic_data
 
