@@ -1123,6 +1123,14 @@ def main():
                             <p style="color: #065f46; font-size: 11px; margin: 8px 0 0 0;">✔ License generated and successfully registered to database/audit trail</p>
                         </div>
                     """)
+                    st.download_button(
+                        label="💾 Tải về File Base License (base.lic)",
+                        data=new_key,
+                        file_name="base.lic",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+
 
         with col_preview:
             # Metrics preview matching mockup
@@ -1524,7 +1532,14 @@ def main():
                             <p style="color: #065f46; font-size: 10px; margin: 6px 0 0 0;">✔ Sao chép chuỗi trên và lưu thành file <b>addon_{addon_guid}.lic</b> đưa về trạm.</p>
                         </div>
                     """)
-                    st.rerun()
+                    st.download_button(
+                        label=f"💾 Tải về File Add-on (addon_{addon_guid}.lic)",
+                        data=addon_key,
+                        file_name=f"addon_{addon_guid}.lic",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+
 
         with col_list:
             st.markdown('<div class="glass-card">', unsafe_allow_html=True)
