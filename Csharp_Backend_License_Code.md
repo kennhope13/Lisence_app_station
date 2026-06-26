@@ -218,42 +218,58 @@ namespace StationMonitor.Services.License
         }
 
         /// <summary>
-        /// Tạo chuỗi JSON chuẩn hóa (Canonical JSON) với các key được sắp xếp theo thứ tự bảng chữ cái.
-        /// Sử dụng để đảm bảo tính đồng nhất của dữ liệu ký giữa Python và C#.
+        /// Tạo chuỗi chuẩn hóa (Canonical String) theo format pipe-separated:
+        /// KIND|licenseId|addonId|baseLicenseId|tier|issuedAtUtc|expiresAtUtc|fingerprintHash|limits
         /// </summary>
-        public static string GetCanonicalJson(LicenseJsonModel model)
+        public static string GetCanonicalJson(LicenseJsonModel model, string fingerprintHash)
         {
-            var dict = new SortedDictionary<string, object>();
-            dict.Add("version", model.version);
-            dict.Add("kind", model.kind);
-            dict.Add("licenseId", model.licenseId);
-            
-            if (model.kind == "addon")
+            string kind = (model.kind ?? "").ToUpper();
+            string licId = (model.licenseId ?? "").ToUpper();
+            string addonId = (model.addonId ?? "").ToUpper();
+            string baseLicId = (model.baseLicenseId ?? "").ToUpper();
+            string tier = (model.tier ?? "").ToUpper();
+            string issued = model.issuedAtUtc ?? "";
+            string expires = model.expiresAtUtc ?? "";
+
+            // limits: users=...;stations=...;cameras=...;roi_points=...;roi_regions=...;pd_regions=...
+            int users = model.limits?.users ?? 0;
+            int stations = model.limits?.stations ?? 0;
+            int cameras = model.limits?.cameras ?? 0;
+            int roiPoints = model.limits?.roiPoints ?? 0;
+            int roiRegions = model.limits?.roiRegions ?? 0;
+            int pdRegions = model.limits?.pdRegions ?? 0;
+            string limitsStr = $"users={users};stations={stations};cameras={cameras};roi_points={roiPoints};roi_regions={roiRegions};pd_regions={pdRegions}";
+
+            return $"{kind}|{licId}|{addonId}|{baseLicId}|{tier}|{issued}|{expires}|{fingerprintHash.ToUpper()}|{limitsStr}";
+        }
+
+        /// <summary>
+        /// Tính fingerprintHash cục bộ từ phần cứng máy hiện tại hoặc trả về mã băm ANY.
+        /// </summary>
+        public static string GetLocalFingerprintHash(LicenseJsonModel model)
+        {
+            if (model.hardware != null && model.hardware.cpuId == "ANY")
             {
-                dict.Add("addonId", model.addonId);
-                dict.Add("baseLicenseId", model.baseLicenseId);
+                using (var sha = SHA256.Create())
+                {
+                    byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes("ANY|ANY|ANY|ANY|ANY"));
+                    return BitConverter.ToString(bytes).Replace("-", "").ToUpper();
+                }
             }
-            
-            dict.Add("tier", model.tier);
-            dict.Add("issuedAtUtc", model.issuedAtUtc);
-            dict.Add("expiresAtUtc", model.expiresAtUtc);
 
-            var hwDict = new SortedDictionary<string, string>();
-            hwDict.Add("cpuId", model.hardware?.cpuId ?? "");
-            hwDict.Add("mainboardUuid", model.hardware?.mainboardUuid ?? "");
-            hwDict.Add("osDiskSerial", model.hardware?.osDiskSerial ?? "");
-            dict.Add("hardware", hwDict);
+            string cpu = HardwareFingerprint.GetCpuID();
+            string mb = HardwareFingerprint.GetMotherboardUUID();
+            string disk = HardwareFingerprint.GetOSDiskSerial();
+            string machine = Environment.MachineName;
+            string platform = Environment.OSVersion.Platform.ToString().ToUpper();
+            if (platform.Contains("WIN")) platform = "WIN32NT";
 
-            var limDict = new SortedDictionary<string, int>();
-            limDict.Add("users", model.limits?.users ?? 0);
-            limDict.Add("stations", model.limits?.stations ?? 0);
-            limDict.Add("cameras", model.limits?.cameras ?? 0);
-            limDict.Add("roiPoints", model.limits?.roiPoints ?? 0);
-            limDict.Add("roiRegions", model.limits?.roiRegions ?? 0);
-            limDict.Add("pdRegions", model.limits?.pdRegions ?? 0);
-            dict.Add("limits", limDict);
-
-            return JsonSerializer.Serialize(dict, new JsonSerializerOptions { WriteIndented = false });
+            string rawHwStr = $"{cpu}|{mb}|{disk}|{machine}|{platform}".ToUpper().Trim();
+            using (var sha = SHA256.Create())
+            {
+                byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(rawHwStr));
+                return BitConverter.ToString(bytes).Replace("-", "").ToUpper();
+            }
         }
 
         /// <summary>
@@ -268,8 +284,9 @@ namespace StationMonitor.Services.License
                 var model = JsonSerializer.Deserialize<LicenseJsonModel>(jsonContent);
                 if (model == null) return null;
 
-                // 1. Xác thực chữ ký số HMAC-SHA256 trên Canonical JSON (chỉ lấy 8 ký tự hex đầu)
-                string canonical = GetCanonicalJson(model);
+                // 1. Xác thực chữ ký số HMAC-SHA256 trên Canonical Payload (chỉ lấy 8 ký tự hex đầu)
+                string fingerprintHash = GetLocalFingerprintHash(model);
+                string canonical = GetCanonicalJson(model, fingerprintHash);
                 string fullSig = GetHmacSha256(canonical, vendorSecret);
                 string computedSig = fullSig.Substring(0, 8);
 

@@ -503,6 +503,11 @@ def _generate_json_license(secret, kind, license_id, tier, exp_date_raw, max_use
     cpu_id = "ANY"
     mb_id = "ANY"
     disk_id = "ANY"
+    raw_cpu = "ANY"
+    raw_mb = "ANY"
+    raw_disk = "ANY"
+    raw_machine = "ANY"
+    raw_platform = "ANY"
     fingerprint_hash = ""
 
     if hwid_raw and hwid_raw != "ANY":
@@ -516,26 +521,30 @@ def _generate_json_license(secret, kind, license_id, tier, exp_date_raw, max_use
                 fingerprint_hash = req_data["FINGERPRINTHASH"].upper().strip()
             if "FINGERPRINT" in req_data:
                 fingerprint = req_data["FINGERPRINT"]
-                cpu_id = fingerprint.get("CPUID", "ANY")
-                mb_id = fingerprint.get("MAINBOARDUUID", "ANY")
-                disk_id = fingerprint.get("OSDISKSERIAL", "ANY")
+                raw_cpu = fingerprint.get("CPUID", "ANY")
+                raw_mb = fingerprint.get("MAINBOARDUUID", "ANY")
+                raw_disk = fingerprint.get("OSDISKSERIAL", "ANY")
+                raw_machine = fingerprint.get("MACHINENAME", "ANY")
+                raw_platform = fingerprint.get("PLATFORM", "ANY")
                 
                 def get_sha256_hash(val):
                     if not val or val == "ANY": return "ANY"
                     return hashlib.sha256(val.upper().strip().encode('utf-8')).hexdigest()[:8].upper()
-                cpu_id = get_sha256_hash(cpu_id)
-                mb_id = get_sha256_hash(mb_id)
-                disk_id = get_sha256_hash(disk_id)
+                cpu_id = get_sha256_hash(raw_cpu)
+                mb_id = get_sha256_hash(raw_mb)
+                disk_id = get_sha256_hash(raw_disk)
         except Exception:
             parts = hwid_raw.split("_")
             if len(parts) == 3:
                 cpu_id, mb_id, disk_id = parts
+                raw_cpu, raw_mb, raw_disk = parts
             else:
                 cpu_id = hwid_raw
+                raw_cpu = hwid_raw
 
     # Ensure fingerprint_hash is calculated if not already extracted
     if not fingerprint_hash:
-        raw_hw_str = f"{cpu_id}|{mb_id}|{disk_id}".upper().strip()
+        raw_hw_str = f"{raw_cpu}|{raw_mb}|{raw_disk}|{raw_machine}|{raw_platform}".upper().strip()
         fingerprint_hash = hashlib.sha256(raw_hw_str.encode('utf-8')).hexdigest().upper()
 
     issued_at_utc = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -574,8 +583,8 @@ def _generate_json_license(secret, kind, license_id, tier, exp_date_raw, max_use
     base_lic_id_str = base_license_id.upper() if base_license_id else ""
     tier_str = tier.upper()
     
-    # limits: users,stations,cameras,roi_points,roi_regions,pd_regions
-    limits_str = f"{int(max_users)},{int(max_stations)},{int(max_cameras)},{int(max_roi_points)},{int(max_roi_regions)},{int(max_pd_regions)}"
+    # limits: users=...;stations=...;cameras=...;roi_points=...;roi_regions=...;pd_regions=...
+    limits_str = f"users={int(max_users)};stations={int(max_stations)};cameras={int(max_cameras)};roi_points={int(max_roi_points)};roi_regions={int(max_roi_regions)};pd_regions={int(max_pd_regions)}"
     
     canonical = f"{kind_str}|{lic_id_str}|{addon_id_str}|{base_lic_id_str}|{tier_str}|{issued_at_utc}|{expires_at_utc}|{fingerprint_hash}|{limits_str}"
     
