@@ -1030,11 +1030,21 @@ def main():
             with c_u2:
                 issued_to = st.text_input("🏢 Đơn vị / Khách hàng được cấp", value="Khách hàng mới")
             
+            uploaded_req_file = st.file_uploader("📂 Tải lên file yêu cầu kích hoạt (.licreq)", type=["licreq"])
+            uploaded_hwid = ""
+            if uploaded_req_file is not None:
+                try:
+                    uploaded_hwid = uploaded_req_file.read().decode("utf-8").strip()
+                    st.success(f"Đã trích xuất HWID từ file: `{uploaded_hwid}`")
+                except Exception as e:
+                    st.error(f"Lỗi đọc file .licreq: {e}")
+
             c_hw1, c_hw2 = st.columns(2)
             with c_hw1:
-                hwid = st.text_input("💻 Mã phần cứng máy trạm (HWID / MAC)", value="", placeholder="Ví dụ: A1B2-C3D4-E5F6 hoặc để trống")
+                hwid = st.text_input("💻 Mã phần cứng máy trạm (HWID / MAC)", value=uploaded_hwid, placeholder="Ví dụ: A1B2-C3D4-E5F6 hoặc để trống")
             with c_hw2:
                 st.write("")
+
             
             st.write("---")
             st.markdown("**📦 Mô-đun Bản quyền:**")
