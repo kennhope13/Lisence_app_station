@@ -1288,18 +1288,19 @@ def main():
                 df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
 
             # Table Header
-            h1, h2, h3, h4, h5, h6, h7 = st.columns([3.8, 1.6, 1.0, 1.6, 2.0, 1.4, 0.8])
+            h1, h2, h3, h4, h5, h6, h7, h8 = st.columns([3.2, 1.3, 0.8, 1.3, 1.5, 1.2, 0.9, 0.6])
             h1.write("**License Key**")
             h2.write("**Package Type**")
             h3.write("**Sessions**")
             h4.write("**Expiry Date**")
             h5.write("**Issued To**")
             h6.write("**Status**")
-            h7.write("**Delete**")
+            h7.write("**Tải**")
+            h8.write("**Xóa**")
             st.divider()
 
             for i, row in df.iloc[::-1].iterrows():
-                r1, r2, r3, r4, r5, r6, r7 = st.columns([3.8, 1.6, 1.0, 1.6, 2.0, 1.4, 0.8])
+                r1, r2, r3, r4, r5, r6, r7, r8 = st.columns([3.2, 1.3, 0.8, 1.3, 1.5, 1.2, 0.9, 0.6])
                 r1.code(row["key"], language="text")
                 r2.write(row['tier'])
                 r3.write(str(row.get('max_sessions', 1)))
@@ -1337,8 +1338,17 @@ def main():
                         st.session_state["keys"] = load_keys()
                         st.rerun()
                 
+                # Download button
+                r7.download_button(
+                    label="💾",
+                    data=row["key"],
+                    file_name="base.lic",
+                    mime="text/plain",
+                    key=f"dl_{row['key']}_{i}"
+                )
+                
                 # Delete action
-                if r7.button("❌", key=f"del_{row['key']}"):
+                if r8.button("❌", key=f"del_{row['key']}"):
                     if st.session_state.get("use_live_db", False):
                         LiveDatabase.delete_license(row["id"])
                     else:
@@ -1346,7 +1356,8 @@ def main():
                         save_keys(st.session_state["keys"])
                     st.session_state["keys"] = load_keys()
                     st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
 
     # Page 3b: Active Sessions
     elif menu == "Active Sessions":
@@ -1550,24 +1561,35 @@ def main():
             else:
                 df_addons = pd.DataFrame(addons)
                 
-                h1, h2, h3, h4, h5, h6 = st.columns([1.5, 3.5, 1.2, 1.2, 1.4, 0.8])
+                h1, h2, h3, h4, h5, h6, h7 = st.columns([1.3, 3.0, 1.1, 1.0, 1.2, 0.8, 0.6])
                 h1.write("**Khách hàng**")
                 h2.write("**Khóa nâng cấp (Add-on Key)**")
                 h3.write("**Tài nguyên**")
                 h4.write("**Số lượng**")
                 h5.write("**Hardware ID**")
-                h6.write("**Xóa**")
+                h6.write("**Tải**")
+                h7.write("**Xóa**")
                 st.divider()
                 
                 for idx, row in df_addons.iterrows():
-                    r1, r2, r3, r4, r5, r6 = st.columns([1.5, 3.5, 1.2, 1.2, 1.4, 0.8])
+                    r1, r2, r3, r4, r5, r6, r7 = st.columns([1.3, 3.0, 1.1, 1.0, 1.2, 0.8, 0.6])
                     r1.write(row["issued_to"])
                     r2.code(row["addon_key"], language="text")
                     r3.write("Camera (CAM)" if row["resource_type"] == "CAM" else "Sensor (SEN)")
                     r4.write(f"+{row['quantity']}")
                     r5.write(row["hardware_id"])
                     
-                    if r6.button("❌", key=f"del_addon_{row['id']}"):
+                    # Download button
+                    addon_guid = row["id"]
+                    r6.download_button(
+                        label="💾",
+                        data=row["addon_key"],
+                        file_name=f"addon_{addon_guid}.lic",
+                        mime="text/plain",
+                        key=f"dl_addon_{addon_guid}_{idx}"
+                    )
+                    
+                    if r7.button("❌", key=f"del_addon_{row['id']}"):
                         if use_live:
                             LiveDatabase.delete_addon(row["id"])
                         else:
